@@ -218,3 +218,25 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# --- Claude / AI assistant & planning docs ---
+.claude/
+CLAUDE.md
+docs/superpowers/
+*.docx
+
+# --- Private data & local artifacts ---
+config.local.json
+.env
+.env.*
+logs/
+models/
+data/
+checkpoints/
+*.zip
+*.wav
+!tests/fixtures/*.wav
+transcripts/
+
+# --- Superpowers workspace ---
+.superpowers/

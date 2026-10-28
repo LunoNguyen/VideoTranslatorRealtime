@@ -1,0 +1,10 @@
+{
+  "server": {"host": "127.0.0.1", "port": 8765},
+  "audio": {"allowed_apps": []},
+  "langs": {"src": "auto", "tgt": "vi"},
+  "asr": {"model": "small", "device": "auto", "compute_type": "int8"},
+  "mt": {"model_dir": "models/mt", "context_sentences": 1},
+  "tts": {"enabled": false, "voice": "models/tts/vi_VN.onnx", "volume": 1.0},
+  "overlay": {"show_source": false, "hold_seconds": 4.0},
+  "logging": {"enabled": false}
+}
