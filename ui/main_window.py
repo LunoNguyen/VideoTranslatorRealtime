@@ -27,6 +27,8 @@ STATUS_TEXT = {
     "tts_error": "Lỗi đọc giọng nói.",
     "config_save_failed": "Không lưu được cấu hình.",
     "pipeline_error": "Lỗi trong quá trình xử lý âm thanh.",
+    "streaming_slow": "Máy không theo kịp, đã chuyển về dịch theo câu.",
+    "speaker_unavailable": "Không dùng được tô màu người nói.",
     "self_tree": "Không thể nghe ứng dụng này vì nó là tiến trình cha của ứng dụng này.",
 }
 _QUIET = {"dropped_segment"}
@@ -43,9 +45,9 @@ def describe_status(msg: dict) -> tuple[str, str]:
         return raw or code or "Không rõ trạng thái", "error" if level == "error" else level if level in _COLORS else "info"
     text = STATUS_TEXT[code]
     # backend message carries details/hints (app name, how to fix): append when present
-    if raw and code in ("app_closed", "self_tree"):
-        text = raw  # already names the app
-    elif raw and code not in ("models_loading", "models_ready", "dropped_segment"):
+    if raw and code in ("app_closed", "self_tree", "speaker_unavailable"):
+        text = raw  # already complete (names the app / says how to fix)
+    elif raw and code not in ("models_loading", "models_ready", "dropped_segment", "streaming_slow"):
         text = f"{text} {raw}"
     if code in _QUIET:
         return text, "quiet"
@@ -84,6 +86,8 @@ class MainWindow(QWidget):
         self.volume.setRange(0, 100)
         self.volume.setValue(100)
         self.source_check = QCheckBox("Hiện câu gốc")
+        self.stream_check = QCheckBox("Dịch tức thì")
+        self.speaker_check = QCheckBox("Tô màu người nói")
         self.conn_label = QLabel("Đang kết nối…")
         self.status_label = QLabel("")
         self.status_label.setWordWrap(True)
@@ -97,6 +101,8 @@ class MainWindow(QWidget):
         form.addRow(self.tts_check)
         form.addRow("Âm lượng đọc", self.volume)
         form.addRow(self.source_check)
+        form.addRow(self.stream_check)
+        form.addRow(self.speaker_check)
         top = QHBoxLayout()
         top.addWidget(QLabel("Chọn ứng dụng cần dịch âm thanh:"))
         top.addStretch(1)
@@ -110,6 +116,8 @@ class MainWindow(QWidget):
         self.src_combo.activated.connect(self._send_langs)
         self.model_combo.activated.connect(self._send_model)
         self.tts_check.toggled.connect(lambda v: self._send("set_tts", enabled=v))
+        self.stream_check.toggled.connect(lambda v: self._send("set_streaming", enabled=v))
+        self.speaker_check.toggled.connect(lambda v: self._send("set_speaker_colors", enabled=v))
         self.volume.sliderReleased.connect(lambda: self._send("set_volume", value=self.volume.value() / 100))
         self.volume.actionTriggered.connect(self._volume_step)
 
@@ -183,6 +191,8 @@ class MainWindow(QWidget):
             self.tts_check.setChecked(bool(tts.get("enabled", False)))
             if "volume" in tts and not self.volume.isSliderDown():
                 self.volume.setValue(round(float(tts["volume"]) * 100))
+            self.stream_check.setChecked(bool(cfg.get("streaming", {}).get("enabled", False)))
+            self.speaker_check.setChecked(bool(cfg.get("speaker", {}).get("enabled", False)))
             ov = cfg.get("overlay", {})
             if self.overlay is not None and "hold_seconds" in ov:
                 self.overlay.set_hold_seconds(float(ov["hold_seconds"]))

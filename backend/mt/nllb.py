@@ -84,7 +84,7 @@ class NLLBTranslator:
     def reset_context(self) -> None:
         self._ctx.clear()
 
-    def translate(self, text: str, src_lang: str, tgt_lang: str = "vi") -> str:
+    def translate(self, text: str, src_lang: str, tgt_lang: str = "vi", commit: bool = True) -> str:
         for lang in (src_lang, tgt_lang):
             if lang not in NLLB_CODES:
                 raise ValueError(f"Unsupported language '{lang}'; supported: {sorted(NLLB_CODES)}")
@@ -100,6 +100,6 @@ class NLLBTranslator:
             res = self._tr.translate_batch([source], target_prefix=[prefix], beam_size=2, max_decoding_length=256)
             hyp = [t for t in list(res[0].hypotheses[0])[len(prefix):] if t != EOS]
             out = self._detok(hyp).strip() if hyp else ""
-            if out and self.context_sentences > 0:
+            if commit and out and self.context_sentences > 0:
                 ctx.append((src_tokens, hyp))
             return out

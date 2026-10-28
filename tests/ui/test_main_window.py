@@ -11,7 +11,7 @@ def test_status_mapping_known_unknown_quiet():
     assert "Chạy scripts/download_models.py" in text and style == "error"
     assert describe_status({"level": "warn", "code": "dropped_segment", "message": "x"})[1] == "quiet"
     assert describe_status({"level": "error", "code": "zzz", "message": "raw msg"}) == ("raw msg", "error")
-    assert len(STATUS_TEXT) == 17
+    assert len(STATUS_TEXT) == 19
 
 
 def _clear_group(group: str) -> None:
@@ -93,3 +93,42 @@ def test_self_tree_status_names_app():
     text, style = describe_status({"level": "warn", "code": "self_tree",
                                    "message": "Không thể nghe cmd.exe vì nó là tiến trình cha của ứng dụng này"})
     assert text == "Không thể nghe cmd.exe vì nó là tiến trình cha của ứng dụng này" and style == "warn"
+
+
+def test_stream_and_speaker_checkboxes_send(qtbot):
+    c = WSClient(autoconnect=False)
+    sent = []
+    c.send = lambda kind, **p: sent.append((kind, p)) or True
+    w = MainWindow(c, None, settings_group="test_chk")
+    qtbot.addWidget(w)
+    assert w.stream_check.text() == "Dịch tức thì" and w.speaker_check.text() == "Tô màu người nói"
+    w.stream_check.setChecked(True)
+    w.speaker_check.setChecked(True)
+    assert ("set_streaming", {"enabled": True}) in sent
+    assert ("set_speaker_colors", {"enabled": True}) in sent
+    _clear_group("test_chk")
+
+
+def test_apply_config_sets_new_checkboxes(qtbot):
+    c = WSClient(autoconnect=False)
+    sent = []
+    c.send = lambda kind, **p: sent.append((kind, p)) or True
+    w = MainWindow(c, None, settings_group="test_chk2")
+    qtbot.addWidget(w)
+    c.config.emit({"streaming": {"enabled": True}, "speaker": {"enabled": True}})
+    assert w.stream_check.isChecked() and w.speaker_check.isChecked() and sent == []
+    c.config.emit({"streaming": {"enabled": False}, "speaker": {"enabled": False}})
+    assert not w.stream_check.isChecked() and not w.speaker_check.isChecked() and sent == []
+    _clear_group("test_chk2")
+
+
+def test_new_status_codes_have_text():
+    assert STATUS_TEXT["streaming_slow"] == "Máy không theo kịp, đã chuyển về dịch theo câu."
+    assert STATUS_TEXT["speaker_unavailable"] == "Không dùng được tô màu người nói."
+    text, _ = describe_status({"level": "warn", "code": "streaming_slow", "message": "x"})
+    assert text == STATUS_TEXT["streaming_slow"]
+    raw = "Không có model phân biệt giọng. Chạy scripts/download_models.py --only speaker"
+    text, lvl = describe_status({"level": "warn", "code": "speaker_unavailable", "message": raw})
+    assert text == raw and lvl == "warn"
+    text, _ = describe_status({"level": "warn", "code": "speaker_unavailable", "message": ""})
+    assert text == STATUS_TEXT["speaker_unavailable"]

@@ -25,7 +25,18 @@ def main(argv: list[str] | None = None) -> int:
     client = WSClient(f"ws://127.0.0.1:{port}/ws", autoconnect=False)
     overlay = Overlay()
     win = MainWindow(client, overlay)
-    client.subtitle.connect(lambda m: overlay.show_subtitle(str(m.get("vi_text", "")), m.get("src_text")))
+    client.subtitle.connect(
+        lambda m: overlay.show_subtitle(
+            str(m.get("vi_text", "")),
+            m.get("src_text"),
+            sub_id=m.get("id"),
+            final=bool(m.get("final", True)),
+            speaker=m.get("speaker"),
+        )
+    )
+    client.status.connect(
+        lambda m: overlay.reset_lines() if m.get("code") == "models_ready" else None
+    )
     overlay.set_connecting(True)
     win.show()
     client.start()

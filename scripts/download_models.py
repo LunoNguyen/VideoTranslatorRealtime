@@ -1,6 +1,6 @@
 """Download base models into models/{asr,mt,tts}. Idempotent.
 
-Usage: python scripts/download_models.py [--preset {4gb,6gb}] [--only {asr,mt,tts}]
+Usage: python scripts/download_models.py [--preset {4gb,6gb}] [--only {asr,mt,tts,speaker}]
 
 Sources and licenses (verified on Hugging Face):
 - ASR: Systran/faster-whisper-<small|medium> via faster_whisper.download_model (CTranslate2 format,
@@ -14,6 +14,8 @@ Sources and licenses (verified on Hugging Face):
   --output_dir models/mt --copy_files tokenizer.json sentencepiece.bpe.model special_tokens_map.json tokenizer_config.json
 - TTS: Piper voice vi_VN-vais1000-medium from HF repo rhasspy/piper-voices (vi/vi_VN/vais1000/medium/);
   MODEL_CARD: dataset VAIS-1000, license CC BY 4.0; finetuned from the en_US lessac medium voice.
+- Speaker: Wespeaker/wespeaker-voxceleb-resnet34-LM voxceleb_resnet34_LM.onnx (~26.5 MB, CC-BY-4.0),
+  saved as models/speaker/embedder.onnx. Input feats [B,T,80], output embs [B,256].
 """
 from __future__ import annotations
 
@@ -81,10 +83,26 @@ def download_tts() -> None:
     print(f"[tts] saved to {dest}")
 
 
+def download_speaker() -> None:
+    target = MODELS / "speaker" / "embedder.onnx"
+    if target.is_file():
+        print(f"[speaker] WeSpeaker ResNet34-LM: already present ({target})")
+        return
+    from huggingface_hub import hf_hub_download
+    print("[speaker] WeSpeaker ResNet34-LM ONNX - license: CC-BY-4.0")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    src = hf_hub_download(repo_id="Wespeaker/wespeaker-voxceleb-resnet34-LM",
+                          filename="voxceleb_resnet34_LM.onnx")
+    tmp = target.with_name(target.name + ".part")
+    shutil.copyfile(src, tmp)
+    tmp.replace(target)
+    print(f"[speaker] saved to {target}")
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--preset", choices=sorted(PRESETS), default="4gb")
-    ap.add_argument("--only", choices=["asr", "mt", "tts"])
+    ap.add_argument("--only", choices=["asr", "mt", "tts", "speaker"])
     args = ap.parse_args(argv)
     if args.only in (None, "asr"):
         download_asr(PRESETS[args.preset])
@@ -92,6 +110,8 @@ def main(argv: list[str] | None = None) -> int:
         download_mt()
     if args.only in (None, "tts"):
         download_tts()
+    if args.only in (None, "speaker"):
+        download_speaker()
     return 0
 
 

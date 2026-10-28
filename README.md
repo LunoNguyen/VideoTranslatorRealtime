@@ -19,6 +19,7 @@
 | Whisper (qua faster-whisper) | MIT |
 | NLLB-200-distilled-600M (bản CTranslate2 int8) | CC-BY-NC 4.0, **không dùng cho mục đích thương mại** |
 | Giọng đọc Piper `vi_VN-vais1000-medium` | CC BY 4.0 |
+| Model phân biệt người nói WeSpeaker ResNet34 (VoxCeleb) | CC-BY-4.0 |
 
 - Dữ liệu huấn luyện (chỉ dùng khi tự fine-tune): mỗi bộ dữ liệu có giấy phép riêng, xem chi tiết trong `training/data_sources.md`. Một số bộ chỉ cho phép phi thương mại hoặc chỉ dành cho nghiên cứu (ví dụ TED/IWSLT/TED2020 theo CC BY-NC-ND 4.0, ReazonSpeech theo Điều 30-4 Luật Bản quyền Nhật Bản, PhoMT chỉ dành cho nghiên cứu và mặc định tắt). Bạn cần đọc và tuân thủ điều khoản của từng bộ trước khi dùng hoặc phân phối model đã huấn luyện.
 
@@ -54,7 +55,7 @@
    python scripts/download_models.py --preset 4gb
    ```
 
-   Dùng `--preset 6gb` để tải Whisper `medium`. Có thể tải riêng từng phần bằng `--only asr`, `--only mt` hoặc `--only tts`. Lệnh có thể chạy lại an toàn, phần đã tải sẽ được bỏ qua.
+   Dùng `--preset 6gb` để tải Whisper `medium`. Có thể tải riêng từng phần bằng `--only asr`, `--only mt`, `--only tts` hoặc `--only speaker`. Lệnh này cũng tải model phân biệt người nói (WeSpeaker ResNet34). Lệnh có thể chạy lại an toàn, phần đã tải sẽ được bỏ qua.
 
 4. (Tùy chọn) Cài model đã fine-tune trên Google Colab.
 
@@ -88,7 +89,8 @@
 3. Chọn ngôn ngữ nguồn: Auto, English hoặc 日本語.
 4. Bật hoặc tắt đọc bản dịch bằng giọng nói (TTS) và chỉnh âm lượng.
 5. Tích "Hiện câu gốc" nếu muốn hiển thị cả câu gốc cùng phụ đề.
-6. Phụ đề hiện trong cửa sổ nổi; kéo cửa sổ này để di chuyển đến vị trí mong muốn.
-7. Đóng cửa sổ cài đặt sẽ dừng backend.
+6. Tích "Dịch tức thì" để phụ đề hiện tạm ngay khi đang nói rồi được thay bằng bản hoàn chỉnh; tích "Tô màu người nói" để mỗi người nói có một màu phụ đề riêng.
+7. Phụ đề hiện trong cửa sổ nổi; kéo cửa sổ này để di chuyển đến vị trí mong muốn.
+8. Đóng cửa sổ cài đặt sẽ dừng backend.
 
 Thiết lập của bạn được lưu trong `config.local.json`. Giá trị mặc định nằm trong `config.default.json`.

@@ -58,6 +58,10 @@ def parse(raw: str) -> tuple[str, dict]:
         if not isinstance(msg.get("enabled"), bool):
             raise BadMessage("set_tts cần 'enabled' (bool)")
         return kind, {"enabled": msg["enabled"]}
+    if kind in ("set_streaming", "set_speaker_colors"):
+        if not isinstance(msg.get("enabled"), bool):
+            raise BadMessage(f"{kind} cần 'enabled' (bool)")
+        return kind, {"enabled": msg["enabled"]}
     if kind == "set_volume":
         v = msg.get("value")
         if isinstance(v, bool) or not isinstance(v, (int, float)) or not 0.0 <= v <= 1.0:

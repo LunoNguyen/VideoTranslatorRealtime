@@ -36,6 +36,7 @@ class Models:
     tts: Any  # TTSPlayer-like (say/set_enabled/set_volume/close) or None
     make_segmenter: Callable[[], Any]
     warnings: list[tuple[str, str]] = field(default_factory=list)
+    speaker: Any | None = None  # SpeakerEmbedder-like or None (colours off)
 
 
 @dataclass
@@ -84,6 +85,33 @@ def _pid_alive(pid: int) -> bool:
         return False
 
 
+SPEAKER_WARNING = (
+    "speaker_unavailable",
+    "Không có model phân biệt giọng. Chạy scripts/download_models.py --only speaker",
+)
+SPEAKER_RUNTIME_WARNING = (
+    "Lỗi model phân biệt giọng, đã tắt tô màu. "
+    "Nếu lặp lại, chạy scripts/download_models.py --only speaker"
+)
+
+
+def _load_speaker(root: Path, cfg: dict, warnings: list[tuple[str, str]]) -> Any | None:
+    """Load the speaker embedder; failure is not fatal (colours off + a warning)."""
+    sp = cfg["speaker"]
+    if not sp["enabled"]:
+        return None
+    try:
+        from backend.speaker.embedder import SpeakerEmbedder
+
+        emb = SpeakerEmbedder(root / sp["model"])
+        emb.load()
+        return emb
+    except Exception as e:  # noqa: BLE001 - ModelMissingError or any load error
+        log.warning("speaker model unavailable: %s", type(e).__name__)
+        warnings.append(SPEAKER_WARNING)
+        return None
+
+
 def default_services(root: Path = ROOT) -> Services:
     def sessions() -> list[AppSession]:
         try:
@@ -123,7 +151,8 @@ def default_services(root: Path = ROOT) -> Services:
         tts = TTSPlayer(PiperTTS(root / t["voice"]), on_error=on_tts_error)
         tts.set_enabled(t["enabled"])
         tts.set_volume(t["volume"])
-        return Models(asr, mt, tts, Segmenter, warnings)
+        speaker = _load_speaker(root, cfg, warnings)
+        return Models(asr, mt, tts, Segmenter, warnings, speaker)
 
     return Services(root, sessions, source_factory, load_models, own_root_pid())
 
@@ -337,9 +366,13 @@ class Hub:
         pl = Pipeline(
             self.mixer.frames(), models.make_segmenter(), models.asr, models.mt, models.tts,
             self._on_subtitle, self._on_pipeline_status,
+            speaker=models.speaker, speaker_cfg=self.cfg["speaker"],
+            partial_every_s=self.cfg["streaming"]["partial_every_s"],
         )
         pl.set_src_lang(self.cfg["langs"]["src"])
         pl.set_tts_enabled(self.cfg["tts"]["enabled"])
+        pl.set_streaming(self.cfg["streaming"]["enabled"])
+        pl.set_speaker_enabled(self.cfg["speaker"]["enabled"])
         self.pipeline = pl
         self.pipe_task = asyncio.create_task(self._run_pipeline(pl))
 
@@ -359,6 +392,10 @@ class Hub:
     async def _on_pipeline_status(self, kind: str, msg: str) -> None:
         if msg == "dropped_segment":
             await self.status(kind, "dropped_segment", "Bỏ qua một đoạn do xử lý chưa kịp")
+        elif msg == "streaming_slow":
+            await self.status(kind, "streaming_slow", "Máy không theo kịp, đã chuyển về dịch theo câu")
+        elif msg == "speaker_unavailable":
+            await self.status(kind, "speaker_unavailable", SPEAKER_RUNTIME_WARNING)
         else:
             await self.status(kind, "pipeline_error", msg)
 
@@ -403,6 +440,8 @@ class Hub:
             await self.send_state(ws)
         elif kind == "set_allowed":
             self.tracker.set_allowed(d["exe"], d["allowed"])
+            if self.pipeline:
+                self.pipeline.reset_speakers()
             await self.patch_config({"audio": {"allowed_apps": sorted(self.tracker.allowed)}})
             await self.tick(force_send=True)
         elif kind == "set_langs":
@@ -417,6 +456,17 @@ class Hub:
             await self.patch_config({"tts": {"volume": d["value"]}})
             if self.models and self.models.tts is not None:
                 self.models.tts.set_volume(d["value"])
+        elif kind == "set_streaming":
+            await self.patch_config({"streaming": {"enabled": d["enabled"]}})
+            if self.pipeline:
+                self.pipeline.set_streaming(d["enabled"])
+        elif kind == "set_speaker_colors":
+            await self.patch_config({"speaker": {"enabled": d["enabled"]}})
+            if d["enabled"] and self.models is not None and self.models.speaker is None:
+                self.tasks = [t for t in self.tasks if not t.done()]
+                self.tasks.append(asyncio.create_task(self.load_models()))  # try loading the model again
+            elif self.pipeline:
+                self.pipeline.set_speaker_enabled(d["enabled"])
         elif kind == "set_models":
             changed = d["asr_model"] != self.cfg["asr"]["model"]
             await self.patch_config({"asr": {"model": d["asr_model"]}})

@@ -6,5 +6,7 @@
   "mt": {"model_dir": "models/mt", "context_sentences": 1},
   "tts": {"enabled": false, "voice": "models/tts/vi_VN.onnx", "volume": 1.0},
   "overlay": {"show_source": false, "hold_seconds": 4.0},
+  "streaming": {"enabled": true, "partial_every_s": 0.7},
+  "speaker": {"enabled": true, "model": "models/speaker/embedder.onnx", "threshold": 0.6, "max_speakers": 6},
   "logging": {"enabled": false}
 }

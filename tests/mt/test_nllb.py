@@ -64,6 +64,18 @@ def test_empty_output_not_pushed_and_context_per_lang():
     assert not any(t._ctx.values())
 
 
+def test_translate_commit_false_keeps_context():
+    t = make(1)
+    t.translate("A", "en")
+    t.translate("B", "en", commit=False)
+    t.translate("C", "en")
+    src2, _ = t._tr.calls[1]
+    assert src2 == ["eng_Latn", "▁A", "▁B", "</s>"]  # B still sees A as context
+    src3, prefix3 = t._tr.calls[2]
+    assert src3 == ["eng_Latn", "▁A", "▁C", "</s>"]  # C carries A, not B
+    assert prefix3 == ["vie_Latn", "▁out1"]
+
+
 def test_missing_model_dir_raises(tmp_path):
     t = NLLBTranslator(tmp_path / "nope", "cpu")
     with pytest.raises(ModelMissingError):

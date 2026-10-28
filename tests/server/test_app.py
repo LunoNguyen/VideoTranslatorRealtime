@@ -403,3 +403,132 @@ def test_file_logging_opt_in(tmp_path, enabled):
         for h in [h for h in root_logger.handlers if h not in before]:
             root_logger.removeHandler(h)
             h.close()
+
+
+# -- streaming + speaker colours ---------------------------------------------
+@pytest.mark.parametrize("kind", ["set_streaming", "set_speaker_colors"])
+def test_parse_set_streaming_and_speaker_colors(kind):
+    from backend.server import protocol as P
+
+    assert P.parse(json.dumps({"type": kind, "enabled": True})) == (kind, {"enabled": True})
+    assert P.parse(json.dumps({"type": kind, "enabled": False})) == (kind, {"enabled": False})
+
+
+@pytest.mark.parametrize("kind", ["set_streaming", "set_speaker_colors"])
+@pytest.mark.parametrize("bad", [{}, {"enabled": "yes"}, {"enabled": 1}, {"enabled": None}])
+def test_parse_streaming_speaker_bad_payload(kind, bad):
+    from backend.server import protocol as P
+
+    with pytest.raises(P.BadMessage):
+        P.parse(json.dumps({"type": kind, **bad}))
+
+
+def test_subtitle_has_final_speaker_rev(root):
+    sessions = [AppSession("chrome.exe", 100, "Chrome", True)]
+    with make_client(root, sessions, allowed=["chrome.exe"]) as c, c.websocket_connect("/ws") as ws:
+        sub = recv_until(ws, lambda m: m["type"] == "subtitle")
+        assert sub["final"] is True and sub["speaker"] is None and isinstance(sub["rev"], int)
+
+
+def _wait_ready(c, ws):
+    hub = c.app.state.hub
+    for _ in range(200):
+        if hub.models_ready and hub.pipeline is not None:
+            return hub
+        time.sleep(0.02)
+    raise AssertionError("models not ready")
+
+
+def test_set_streaming_patches_config_and_pipeline(root):
+    with make_client(root) as c, c.websocket_connect("/ws") as ws:
+        hub = _wait_ready(c, ws)
+        calls = []
+        hub.pipeline.set_streaming = calls.append
+        ws.send_json({"type": "set_streaming", "enabled": False})
+        msg = recv_until(ws, lambda m: m["type"] == "config" and m["config"]["streaming"]["enabled"] is False)
+        assert calls == [False] and msg["config"]["streaming"]["enabled"] is False
+    assert json.loads((root / "config.local.json").read_text())["streaming"]["enabled"] is False
+
+
+def test_start_pipeline_applies_streaming_and_speaker_cfg(root):
+    spk = object()
+
+    def load(cfg, cb):
+        return Models(FakeASR(), FakeMT(), None, OneSeg, [], spk)
+
+    with make_client(root, load=load) as c, c.websocket_connect("/ws") as ws:
+        hub = _wait_ready(c, ws)
+        assert hub.pipeline._speaker is spk and hub.pipeline._speaker_enabled
+        assert hub.pipeline._clusterer.max_speakers == hub.cfg["speaker"]["max_speakers"]
+        assert hub.pipeline._streaming is True
+
+
+def test_set_speaker_colors_toggles_pipeline(root):
+    spk = object()
+
+    def load(cfg, cb):
+        return Models(FakeASR(), FakeMT(), None, OneSeg, [], spk)
+
+    with make_client(root, load=load) as c, c.websocket_connect("/ws") as ws:
+        hub = _wait_ready(c, ws)
+        calls = []
+        hub.pipeline.set_speaker_enabled = calls.append
+        ws.send_json({"type": "set_speaker_colors", "enabled": False})
+        recv_until(ws, lambda m: m["type"] == "config" and m["config"]["speaker"]["enabled"] is False)
+        assert calls == [False]
+
+
+def test_set_speaker_colors_on_without_model_reloads(root):
+    loads = []
+
+    def load(cfg, cb):
+        loads.append(cfg["speaker"]["enabled"])
+        return Models(FakeASR(), FakeMT(), None, OneSeg, [], None)
+
+    with make_client(root, load=load) as c, c.websocket_connect("/ws") as ws:
+        hub = _wait_ready(c, ws)
+        ws.send_json({"type": "set_speaker_colors", "enabled": False})
+        recv_until(ws, lambda m: m["type"] == "config" and m["config"]["speaker"]["enabled"] is False)
+        assert len(loads) == 1  # turning off never reloads
+        ws.send_json({"type": "set_speaker_colors", "enabled": True})
+        for _ in range(200):
+            if len(loads) == 2 and hub.models_ready:
+                break
+            time.sleep(0.02)
+        assert loads == [True, True]
+
+
+def test_set_allowed_resets_speakers(root):
+    with make_client(root) as c, c.websocket_connect("/ws") as ws:
+        hub = _wait_ready(c, ws)
+        calls = []
+        hub.pipeline.reset_speakers = lambda: calls.append(1)
+        ws.send_json({"type": "set_allowed", "exe": "a.exe", "allowed": True})
+        recv_until(ws, lambda m: m["type"] == "apps")
+        assert calls == [1]
+
+
+def test_missing_speaker_model_warns_and_runs(root):
+    from backend.server.app import default_services
+
+    sv = default_services(root)
+    cfg = load_config(root)
+    # real load_models would need ASR/MT; exercise only the speaker helper
+    from backend.server import app as appmod
+
+    warnings: list = []
+    assert appmod._load_speaker(root, cfg, warnings) is None
+    assert warnings == [("speaker_unavailable", "Không có model phân biệt giọng. Chạy scripts/download_models.py --only speaker")]
+    assert sv is not None
+
+
+def test_pipeline_status_forwards_new_warn_codes(root):
+    with make_client(root) as c, c.websocket_connect("/ws") as ws:
+        hub = _wait_ready(c, ws)
+        drain(ws)
+        asyncio.run_coroutine_threadsafe(hub._on_pipeline_status("warn", "streaming_slow"), hub.loop).result(5)
+        m = recv_until(ws, lambda m: m.get("code") == "streaming_slow")
+        assert m["level"] == "warn" and m["message"]
+        asyncio.run_coroutine_threadsafe(hub._on_pipeline_status("warn", "speaker_unavailable"), hub.loop).result(5)
+        m = recv_until(ws, lambda m: m.get("code") == "speaker_unavailable")
+        assert m["level"] == "warn" and "download_models.py --only speaker" in m["message"]

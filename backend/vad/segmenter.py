@@ -18,6 +18,21 @@ class Segment:
     audio: np.ndarray
     t_start: float
     t_end: float
+    seg_id: int = 0
+
+
+@dataclass
+class Partial:
+    """Snapshot of the sentence still being spoken (provisional)."""
+
+    seg_id: int
+    audio: np.ndarray
+    t_start: float
+    t_end: float
+
+
+PARTIAL_MIN_S = 1.0  # speech needed in a sentence before its first partial
+PARTIAL_MAX_S = 8.0  # cap on partial audio length
 
 
 class SileroSpeechProb:
@@ -66,6 +81,7 @@ class Segmenter:
         silence_ms: int = 500,
         max_s: float = 8.0,
         threshold: float = 0.5,
+        partial_every_s: float | None = None,
     ) -> None:
         self._prob = speech_prob
         self.silence_ms = silence_ms
@@ -78,6 +94,12 @@ class Segmenter:
         self._seg_start = 0
         self._last_speech_end = 0
         self._silence_ms = 0.0
+        self.partial_every_s = partial_every_s
+        self._seg_id = 0
+        self._last_partial_end: int | None = None
+
+    def set_partial_every(self, s: float | None) -> None:
+        self.partial_every_s = s
 
     def _speech_prob(self, window: np.ndarray) -> float:
         if self._prob is None:
@@ -93,11 +115,23 @@ class Segmenter:
         self._off = keep_from
 
     def _emit(self, a: int, b: int) -> Segment:
-        return Segment(self._slice(a, b), a / SR, b / SR)
+        return Segment(self._slice(a, b), a / SR, b / SR, self._seg_id)
 
-    def push(self, frame: np.ndarray) -> list[Segment]:
+    def _maybe_partial(self, e: int, out: list) -> None:
+        every = self.partial_every_s
+        if every is None or not self._in_seg or self._silence_ms > 0:
+            return  # partials only while speaking, never during trailing silence
+        if e - self._seg_start < int(PARTIAL_MIN_S * SR):
+            return
+        if self._last_partial_end is not None and e - self._last_partial_end < every * SR:
+            return
+        a = max(self._seg_start, e - int(PARTIAL_MAX_S * SR))
+        out.append(Partial(self._seg_id, self._slice(a, e), a / SR, e / SR))
+        self._last_partial_end = e
+
+    def push(self, frame: np.ndarray) -> list[Segment | Partial]:
         self._audio = np.concatenate([self._audio, frame.astype(np.float32).ravel()])
-        out: list[Segment] = []
+        out: list[Segment | Partial] = []
         total = self._off + len(self._audio)
         while total - self._done >= WINDOW:
             s = self._done
@@ -107,10 +141,12 @@ class Segmenter:
             self._step(s, e, speech, out)
         return out
 
-    def _step(self, s: int, e: int, speech: bool, out: list[Segment]) -> None:
+    def _step(self, s: int, e: int, speech: bool, out: list) -> None:
         if not self._in_seg:
             if speech:
                 self._in_seg = True
+                self._seg_id += 1
+                self._last_partial_end = None
                 self._seg_start = max(self._off, s - PREROLL)
                 self._last_speech_end = e
                 self._silence_ms = 0.0
@@ -135,9 +171,14 @@ class Segmenter:
             self._trim(cut)
             if self._last_speech_end <= cut:
                 self._in_seg = False
+            else:
+                self._seg_id += 1
+                self._last_partial_end = None
+            return
+        self._maybe_partial(e, out)
 
-    def flush(self) -> list[Segment]:
-        out: list[Segment] = []
+    def flush(self) -> list[Segment | Partial]:
+        out: list[Segment | Partial] = []
         if self._in_seg:
             total = self._off + len(self._audio)
             end = min(self._last_speech_end + TRAIL, total)

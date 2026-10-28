@@ -15,6 +15,7 @@ dependencies = [
     "soxr",
     "proc-tap>=1.1.1,<1.2",
     "onnxruntime",
+    "kaldi-native-fbank>=1.20",
     "faster-whisper>=1.2.1,<1.3",
     "ctranslate2>=4.5,<5",
     "sentencepiece",
